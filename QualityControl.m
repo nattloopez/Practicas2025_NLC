@@ -3,6 +3,7 @@
 % Cajal Institute (CSIC), Madrid, Spain 
 % January, 2026 
 
+
 clc; clear;
 
 disp("=== My script has started.")
@@ -11,11 +12,11 @@ disp("=== My script has started.")
 
 % Directory to store brainstorm database
 BrainstormDbDir = fullfile(pwd, 'brainstorm_db'); 
-ReportsDir = '/home/natalia/app-local/out_reports';
-DataDir    = '/home/natalia/app-local/out_QC';
+ReportsDir = '/home/natalia/app_local/out_reports';
+DataDir    = '/home/natalia/app_local/out_QC';
 
 % BIDS directory with all participants
-BIDS_dir = '/home/natalia/app-local/EEG_BIDS_restingdata_output';
+BIDS_dir = '/home/natalia/app_local/EEG_BIDS_restingdata_output';
 
 % Protocol name and parameters
 ProtocolName = 'DatasetAD'; 
@@ -99,6 +100,7 @@ if isempty(sFilesAll)
 else
     disp(["== Success: Found " num2str(length(sFilesAll)) " files in database"]);
 end
+
 
 
 %% Loop over participants
@@ -295,6 +297,18 @@ for iSub = 1:length(sFilesAll)
     hFigPSD = view_spectrum(sFilesPSDpre.FileName, 'Spectrum');
     set(hFigPSD, 'Position', fig_size); 
     bst_report('Snapshot', hFigPSD, sFilesPSDpre.FileName, 'PSD Spectrum', fig_size);
+    close(hFigPSD);
+
+    % View PSD closeup (0-80Hz) 
+    hFigPSD = view_spectrum(sFilesPSDpre.FileName, 'Spectrum');
+    set(hFigPSD, 'Position', fig_size);     
+    StatInfo = getappdata(hFigPSD);    
+    Mat = in_bst_timefreq(sFilesPSDpre.FileName, 0, 'Freqs');
+    iFreqs80 = find(Mat.Freqs <= 80);    
+    StatInfo.Timefreq.iFreqs = iFreqs80;
+    setappdata(hFigPSD, 'Timefreq', StatInfo.Timefreq);   
+    bst_figures('ReloadFigures', hFigPSD);    
+    bst_report('Snapshot', hFigPSD, sFilesPSDpre.FileName, 'PSD Spectrum (0-80Hz)', fig_size);
     close(hFigPSD);
 
     disp('=== Finished PSD computation')

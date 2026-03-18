@@ -11,12 +11,12 @@ disp("=== My script has started.")
 
 % Directory to store brainstorm database
 BrainstormDbDir = fullfile(pwd, 'brainstorm_db'); 
-ReportsDir = '/home/natalia/app-local/out_reports';
-DataDir    = '/home/natalia/app-local/out_preproc';
+ReportsDir = '/home/natalia/app_local/out_reports';
+DataDir    = '/home/natalia/app_local/out_preproc';
 
 % Protocol name (we use the same name as QC protocol because we will
 % directly import it from database)
-ProtocolName = 'Dataset1'; 
+ProtocolName = 'DatasetAD'; 
 
 % PSD parameters
 Win_length = 4;
@@ -30,8 +30,28 @@ Notch_freqs = [];
 High_pass = 0.3;
 Low_pass = 0;
 
-% Re-referencing
-REF_operation = 'AVERAGE';
+% Reference montage
+% Montage needs to be created manually between execution of quality control
+% and preprocessing because I found no way to create a montage through the
+% code. 
+Montage_name = 'reference_Fp1'; % IMPORTANT: use same name as the one created in BST
+MontageFile_name = 'reference_Fp1';
+
+% ds004504 
+% Ref_channel = ''; % A1 A2 mastoids -> not necessary
+% ds003775 
+% Ref_channel = 'Average';
+% Home acquisition 
+Ref_channel = '';
+
+% If reference channel is set to average, change montage name to default
+% average montage and re-reference acordingly. This will also be done if no
+% reference channel is specified
+if (strcmpi(Ref_channel, 'Average') == 1) || (isempty(Ref_channel))
+    Montage_name = 'Average reference';
+    MontageFile_name = 'Average_reference';
+    Ref_channel = 'AVERAGE';
+end
 
 % Peak to peak parameters 
 DetectionThreshold = 0;          
@@ -91,6 +111,12 @@ fig_height = 600;
 fig_size = [200, 200, fig_width, fig_height];
 
 
+% SSP contact sheet parameters
+nCols = 5;
+tileWidth = floor(fig_width / nCols); 
+tileHeight = 0.6*tileWidth; 
+
+
 %% Start Brainstorm and load protocol from database
 disp('== Start Brainstorm (nogui)');
 
@@ -129,7 +155,7 @@ bst_report('Start');
 
 
 %% Store data in sFilesAll for normal use
-disp('== Get all raw EEG data files in protocol');
+disp('=== Get all raw EEG data files in protocol');
 
 % Select all continuous raw files (or whichever file type you want)
 sFilesAll = bst_process('CallProcess', 'process_select_files_data', [], [], ...
@@ -223,15 +249,15 @@ for iSub = 1:length(sFilesCont)
     disp('=== Apply montage and re-reference')
     % Process: Apply montage
     sFilesEEG = bst_process('CallProcess', 'process_montage_apply', sFilesBand, [], ...
-        'montage',    'Average reference', ...
+        'montage',    Montage_name, ...
         'usectfcomp', 1, ...
         'usessp',     1);
     
     % Process: Re-reference EEG
     sFilesREF = bst_process('CallProcess', 'process_eegref', sFilesEEG, [], ...
-        'eegref',      REF_operation, ...
+        'eegref',      Ref_channel, ...
         'sensortypes', 'EEG');
-    
+
  
     disp('=== Detect artifacts and apply SSP')
 
@@ -267,24 +293,79 @@ for iSub = 1:length(sFilesCont)
             'sensortypes', 'EEG', ...
             'usessp',      1, ...
             'select',      sspECG_select);
-    
-        % Process: Snapshot: SSP projectors
-        bst_process('CallProcess', 'process_snapshot', ECGprojectors, [], ...
-            'type',           'ssp', ...  % SSP projectors
-            'modality',       4, ...  % EEG
-            'orient',         1, ...  % left
-            'time',           0, ...
-            'contact_time',   [0, 0.1], ...
-            'contact_nimage', 12, ...
-            'threshold',      30, ...
-            'surfsmooth',     30, ...
-            'freq',           0, ...
-            'rowname',        '', ...
-            'mni',            [0, 0, 0], ...
-            'Comment',        '');
-    end
 
-    % Add figure size modification when changing to show the SSP contact sheet! 
+        % SSP ECG contact sheet
+        channels = in_bst_channel(ECGprojectors.ChannelFile);
+        iProjECG = 0;
+        % Find cardiac projectors
+        for i = 1:length(channels.Projector)
+            if contains(channels.Projector(i).Comment, cardiac_name, 'IgnoreCase', true)
+                iProjECG = i;
+                break;
+            end
+        end
+        if iProjECG == 0
+            warning('No cardiac SSP components were found, skipping contact sheet')
+        else
+            % Obtain components matrix and singular values (percentages)
+            components = channels.Projector(iProjECG).Components; % Nchannels x Nprojectors
+            SingVal = channels.Projector(iProjECG).SingVal;
+
+            % If singular values are empty, we will show the indexes
+            if isempty(SingVal)
+                percentages = zeros(1, size(components,2));
+            else
+                % Normalize to get percentage of total variance
+                percentages = round(100 * (SingVal ./ sum(SingVal)));
+            end
+
+            [Nchannels, Nprojectors] = size(components);
+            allImages = cell(1, Nprojectors);
+
+            % Loop through all projectors to capture each topography
+            for j = 1:Nprojectors
+                hFig = view_topography(ECGprojectors.FileName, 'EEG', '2DDisc', components(:,j), 1, "NewFigure");
+        
+                % Add percentages or indexes
+                if percentages(j) > 0
+                    strLegend = sprintf('SSP%d (%d%%)', j, percentages(j));
+                else
+                    strLegend = sprintf('SSP%d', j);
+                end
+                
+                
+                % Capture image and save in 'allImages' cell, forcing consistent size
+                imgRaw = out_figure_image(hFig, [], strLegend);
+                allImages{j} = imresize(imgRaw, [tileHeight, tileWidth]);
+                
+                close(hFig);
+            end
+
+            % Tile all images for display and saving in report
+            % Calculate dimensions
+            nRows = ceil(Nprojectors / nCols);
+
+            % Initialize blank canvas
+            contactSheet = uint8(255 * ones(nRows * tileHeight, nCols * tileWidth, 3));
+        
+            for j = 1:Nprojectors
+                row = floor((j-1) / nCols);
+                col = mod(j-1, nCols);
+                
+                % Map the coordinates using our fixed tile sizes
+                y_idx = (row * tileHeight) + (1:tileHeight);
+                x_idx = (col * tileWidth) + (1:tileWidth);
+                
+                contactSheet(y_idx, x_idx, :) = allImages{j};
+            end
+            
+            % Save final image
+            hFinal = view_image(contactSheet);
+            set(hFinal, 'Name', 'ECG SSP Contact Sheet', 'Position', [200, 200, fig_width, nRows * tileHeight]);
+            bst_report('Snapshot', hFinal, ECGprojectors.FileName, 'ECG SSP Components Contact Sheet', fig_size);
+            close(hFinal);
+        end
+    end
     
     if ~isempty(EOG_name)
         % Process: SSP EOG: blink
@@ -293,36 +374,96 @@ for iSub = 1:length(sFilesCont)
             'sensortypes', 'EEG', ...
             'usessp',      1, ...
             'select',      sspEOG_select);
-    
-        % Process: Snapshot: SSP projectors
-        bst_process('CallProcess', 'process_snapshot', EOGprojectors, [], ...
-            'type',           'ssp', ...  % SSP projectors
-            'modality',       4, ...  % EEG
-            'orient',         1, ...  % left
-            'time',           0, ...
-            'contact_time',   [0, 0.1], ...
-            'contact_nimage', 12, ...
-            'threshold',      30, ...
-            'surfsmooth',     30, ...
-            'freq',           0, ...
-            'rowname',        '', ...
-            'mni',            [0, 0, 0], ...
-            'Comment',        '');
+
+        % SSP EOG contact sheet
+        channels = in_bst_channel(EOGprojectors.ChannelFile);
+        iProjEOG = 0;
+        % Find blink projectors
+        for i = 1:length(channels.Projector)
+            if contains(channels.Projector(i).Comment, blink_name, 'IgnoreCase', true)
+                iProjEOG = i;
+                break;
+            end
+        end
+        if iProjEOG == 0
+            warning('No blink SSP components were found, skipping contact sheet')
+        else
+            % Obtain components matrix and singular values (percentages)
+            components = channels.Projector(iProjEOG).Components; % Nchannels x Nprojectors
+            SingVal = channels.Projector(iProjEOG).SingVal;
+
+            % If singular values are empty, we will show the indexes
+            if isempty(SingVal)
+                percentages = zeros(1, size(components,2));
+            else
+                % Normalize to get percentage of total variance
+                percentages = round(100 * (SingVal ./ sum(SingVal)));
+            end
+
+            [Nchannels, Nprojectors] = size(components);
+            allImages = cell(1, Nprojectors);
+
+            % Loop through all projectors to capture each topography
+            for j = 1:Nprojectors
+                hFig = view_topography(EOGprojectors.FileName, 'EEG', '2DDisc', components(:,j), 1, "NewFigure");
+        
+                % Add percentages or indexes
+                if percentages(j) > 0
+                    strLegend = sprintf('SSP%d (%d%%)', j, percentages(j));
+                else
+                    strLegend = sprintf('SSP%d', j);
+                end
+                
+                
+                % Capture image and save in 'allImages' cell, forcing consistent size
+                imgRaw = out_figure_image(hFig, [], strLegend);
+                allImages{j} = imresize(imgRaw, [tileHeight, tileWidth]);
+                
+                close(hFig);
+            end
+
+            % Tile all images for display and saving in report
+            % Calculate dimensions
+            nRows = ceil(Nprojectors / nCols);
+
+            % Initialize blank canvas
+            contactSheet = uint8(255 * ones(nRows * tileHeight, nCols * tileWidth, 3));
+        
+            for j = 1:Nprojectors
+                row = floor((j-1) / nCols);
+                col = mod(j-1, nCols);
+                
+                % Map the coordinates using our fixed tile sizes
+                y_idx = (row * tileHeight) + (1:tileHeight);
+                x_idx = (col * tileWidth) + (1:tileWidth);
+                
+                contactSheet(y_idx, x_idx, :) = allImages{j};
+            end
+            
+            % Save final image
+            hFinal = view_image(contactSheet);
+            set(hFinal, 'Name', 'EOG SSP Contact Sheet', 'Position', [200, 200, fig_width, nRows * tileHeight]);
+            bst_report('Snapshot', hFinal, EOGprojectors.FileName, 'EOG SSP Components Contact Sheet', fig_size);
+            close(hFinal);
+        end
+
     end
 
+    
 
-    disp('== Detect bad channels and segments')
+    disp('=== Detect bad channels and segments') % Temporarily out of use until I use mean and std results, rn it gives problems
+    
     % Process: Detect bad segments/trials: Peak-to-peak  EEG(0-100)
-    sFilesPtP = bst_process('CallProcess', 'process_detectbad', sFilesREF, [], ...
-        'timewindow', [], ...
-        'meggrad',    [0, 0], ...
-        'megmag',     [0, 0], ...
-        'eeg',        [DetectionThreshold, RejectionThreshold], ...
-        'ieeg',       [0, 0], ...
-        'eog',        [0, 0], ...
-        'ecg',        [0, 0], ...
-        'win_length', WindowLength, ...
-        'rejectmode', 2);  % Reject the entire segments/trials (all channels)
+    % sFilesPtP = bst_process('CallProcess', 'process_detectbad', sFilesREF, [], ...
+    %     'timewindow', [], ...
+    %     'meggrad',    [0, 0], ...
+    %     'megmag',     [0, 0], ...
+    %     'eeg',        [DetectionThreshold, RejectionThreshold], ...
+    %     'ieeg',       [0, 0], ...
+    %     'eog',        [0, 0], ...
+    %     'ecg',        [0, 0], ...
+    %     'win_length', WindowLength, ...
+    %     'rejectmode', 2);  % Reject the entire segments/trials (all channels)
     
     
     %% Compute parameters for json report: bad channels, segments, blinks and cardiacs
@@ -338,7 +479,7 @@ for iSub = 1:length(sFilesCont)
     % Find the average raw file
     sRaw = [];
     for f = 1:length(rawFiles)
-        if contains(rawFiles(f).FileName, 'Average_reference')
+        if contains(rawFiles(f).FileName, MontageFile_name)
             sRaw = rawFiles(f);
             break;
         end
@@ -352,27 +493,27 @@ for iSub = 1:length(sFilesCont)
         sRawData = in_bst_data(sRaw.FileName, 'F'); 
         
         % Bad channels are contained in the channelflag
-        ChannelFlags = sRawData.F.channelflag;  % 1=good, -1=bad
-        numBadChannels = 0;
-        BadChannels = [];
-        
-        % Count and store indexes of bad channels
-        for i = 1:length(ChannelFlags)
-            if ChannelFlags(i) == -1
-                numBadChannels = numBadChannels + 1;
-                BadChannels(end+1) = i;
-            end
-        end
-        % Display results and transfer to json structure
-        fprintf("Found %i bad channels.\n", numBadChannels);
-        jsonData.numBadChannels = numBadChannels;
-        jsonData.badChannelIndexes = BadChannels;  % Conectar con tsv para poner nombres de canales en vez de numeros?
+    %     ChannelFlags = sRawData.F.channelflag;  % 1=good, -1=bad
+    %     numBadChannels = 0;
+    %     BadChannels = [];
+    % 
+    %     % Count and store indexes of bad channels
+    %     for i = 1:length(ChannelFlags)
+    %         if ChannelFlags(i) == -1
+    %             numBadChannels = numBadChannels + 1;
+    %             BadChannels(end+1) = i;
+    %         end
+    %     end
+    %     % Display results and transfer to json structure
+    %     fprintf("Found %i bad channels.\n", numBadChannels);
+    %     jsonData.numBadChannels = numBadChannels;
+    %     jsonData.badChannelIndexes = BadChannels;  % Conectar con tsv para poner nombres de canales en vez de numeros?
     end
     
     % Count number of events (bad segments, blinks and cardiacs)
     % Initialize
-    numBadSegments = 0;
-    BadSegments     = {};   
+    % numBadSegments = 0;
+    % BadSegments     = {};   
     numBlinks       = 0;
     Blinks          = {};   
     numCardiac      = 0;
@@ -384,11 +525,11 @@ for iSub = 1:length(sFilesCont)
         evtTimes = evt.times;   
         evtLabel = evt.label;
     
-        if contains(evtLabel, 'BAD', 'IgnoreCase', true)  %
-            numBadSegments = numBadSegments + length(evtTimes);
-            BadSegments{end+1} = evtTimes;  
+        % if contains(evtLabel, 'BAD', 'IgnoreCase', true)  %
+        %     numBadSegments = numBadSegments + length(evtTimes);
+        %     BadSegments{end+1} = evtTimes;  
     
-        elseif contains(evtLabel, 'blink', 'IgnoreCase', true)
+        if contains(evtLabel, 'blink', 'IgnoreCase', true)
             numBlinks = numBlinks + length(evtTimes);
             Blinks{end+1} = evtTimes;      
     
@@ -399,10 +540,10 @@ for iSub = 1:length(sFilesCont)
     end
     
     % Add to JSON structure
-    jsonData.numBadSegments = numBadSegments;
+    % jsonData.numBadSegments = numBadSegments;
     jsonData.numBlinks      = numBlinks;
     jsonData.numCardiac     = numCardiac;
-    jsonData.badSegments    = BadSegments;
+    % jsonData.badSegments    = BadSegments;
     jsonData.blinkTimes     = Blinks;
     jsonData.cardiacTimes   = Cardiac;
 
@@ -411,7 +552,7 @@ for iSub = 1:length(sFilesCont)
     
     disp('=== Compute PSD post')
     % Process: Power spectrum density (Welch)
-    sFilesPSDpost = bst_process('CallProcess', 'process_psd', sFilesPtP, [], ...
+    sFilesPSDpost = bst_process('CallProcess', 'process_psd', sFilesREF, [], ...
         'timewindow',  [], ...
         'win_length',  Win_length, ...
         'win_overlap', Win_overlap, ...
@@ -443,17 +584,29 @@ for iSub = 1:length(sFilesCont)
     %     'Comment',        '');
 
     % View PSD manually to change size
-    hFigPSD = view_spectrum(sFilesPSDpost.FileName, 'Spectrum');
-    set(hFigPSD, 'Position', fig_size); 
-    bst_report('Snapshot', hFigPSD, sFilesPSDpost.FileName, 'PSD Spectrum', fig_size);
-    close(hFigPSD);
+    hFigPSDpost = view_spectrum(sFilesPSDpost.FileName, 'Spectrum');
+    set(hFigPSDpost, 'Position', fig_size); 
+    bst_report('Snapshot', hFigPSDpost, sFilesPSDpost.FileName, 'PSD Spectrum', fig_size);
+    close(hFigPSDpost);
    
+    % View PSD closeup (0-80Hz) 
+    hFigPSD = view_spectrum(sFilesPSDpost.FileName, 'Spectrum');
+    set(hFigPSD, 'Position', fig_size);     
+    StatInfo = getappdata(hFigPSD);    
+    Mat = in_bst_timefreq(sFilesPSDpost.FileName, 0, 'Freqs');
+    iFreqs80 = find(Mat.Freqs <= 80);    
+    StatInfo.Timefreq.iFreqs = iFreqs80;
+    setappdata(hFigPSD, 'Timefreq', StatInfo.Timefreq);   
+    bst_figures('ReloadFigures', hFigPSD);    
+    bst_report('Snapshot', hFigPSD, sFilesPSDpost.FileName, 'PSD Spectrum (0-80Hz)', fig_size);
+    close(hFigPSD);
+
 
     %% Import recordings: convert to epochs for mean and std computation
     disp('=== Import recordings: convert to epochs')
 
     % Process: Import MEG/EEG: Time
-    sFilesEpoch = bst_process('CallProcess', 'process_import_data_time', sFilesPtP, [], ...
+    sFilesEpoch = bst_process('CallProcess', 'process_import_data_time', sFilesREF, [], ...
         'subjectname',   participant, ...
         'condition',     'epoch', ...
         'timewindow',    [], ...
@@ -638,3 +791,4 @@ copyfile([BrainstormDbDir,'/',ProtocolName], DataDir);
 
 %% DONE
 disp('=== Done!');
+

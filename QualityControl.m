@@ -1,7 +1,7 @@
 % Quality control of resting state EEG signals
 % Authors: Natalia Lopez, Julia Reina, Guiomar Niso
 % Cajal Institute (CSIC), Madrid, Spain 
-% January, 2026 
+% March, 2026 
 
 
 clc; clear;
@@ -120,6 +120,10 @@ for iSub = 1:length(sFilesAll)
     jsonData.participant = participant;
     jsonData.protocol = ProtocolName;
     jsonData.date = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+
+    % Obtain condition for report naming (required if more than one
+    % recording per subject)
+    conditionName = sFilesEEG.Condition;
     
     
     %% Import recordings: convert to epochs for later use
@@ -368,14 +372,14 @@ for iSub = 1:length(sFilesAll)
     disp('=== Save report');
 
     % Desired filename
-    outputName = fullfile(ReportsDir, sprintf('QualityControl-%s-%s.html', participant, ProtocolName));
+    outputName = fullfile(ReportsDir, sprintf('QC-%s-%s-%s.html', participant, conditionName, ProtocolName));
     
     % Save and then export to the custom name
     ReportFile = bst_report('Save', []);
     bst_report('Export', ReportFile, outputName);
     
     % Create JSON report
-    jsonFile = fullfile(ReportsDir, sprintf('QC-%s-%s.json', participant, ProtocolName));
+    jsonFile = fullfile(ReportsDir, sprintf('QC-%s-%s-%s.json', participant, conditionName, ProtocolName));
     fid = fopen(jsonFile, 'w');
     if fid == -1
         error("Cannot open JSON file.")

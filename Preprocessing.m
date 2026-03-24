@@ -1,7 +1,7 @@
 % Preprocessing of resting state EEG signals
 % Authors: Natalia Lopez, Julia Reina, Guiomar Niso
 % Cajal Institute (CSIC), Madrid, Spain 
-% January, 2026 
+% March, 2026 
 
 clc; clear;
 
@@ -74,7 +74,7 @@ ignore_short = 1;
 % Head model parameters
 headModel_sourcespace = 1;  % Cortex surface
 headModel_meg = 3;  % Overlapping spheres
-headModel_eeg = 2;  % OpenMEEG BEM
+headModel_eeg = 2;  % 3-shell sphere (OpenMEEG no funciona en mi ordenador)
 headModel_ecog = 2;  % OpenMEEG BEM
 headModel_seeg = 2;  % OpenMEEG BEM
 headModel_nirs = 1; 
@@ -199,6 +199,10 @@ for iSub = 1:length(sFilesCont)
 
     % Reset notch frequencies
     Notch_freqs = [];
+
+    % Obtain condition for report naming (required if more than one
+    % recording per subject)
+    conditionName = sFilesRaw.Condition;
     
 
     %% Preprocessing
@@ -206,7 +210,7 @@ for iSub = 1:length(sFilesCont)
     % Compute frequencies for notch filter if not specified above
     if isempty(Notch_freqs)
         % Load json report from QC step and verify
-        jsonPath = fullfile('out_reports', sprintf('QC-%s-%s.json', participant, ProtocolName)); 
+        jsonPath = fullfile('out_reports', sprintf('QC-%s-%s-%s.json', participant, conditionName, ProtocolName)); 
         if ~exist(jsonPath, 'file')
             error('QC JSON file not found for participant %s. Path: %s', participant, jsonPath);
         end
@@ -454,16 +458,16 @@ for iSub = 1:length(sFilesCont)
     disp('=== Detect bad channels and segments') % Temporarily out of use until I use mean and std results, rn it gives problems
     
     % Process: Detect bad segments/trials: Peak-to-peak  EEG(0-100)
-    % sFilesPtP = bst_process('CallProcess', 'process_detectbad', sFilesREF, [], ...
-    %     'timewindow', [], ...
-    %     'meggrad',    [0, 0], ...
-    %     'megmag',     [0, 0], ...
-    %     'eeg',        [DetectionThreshold, RejectionThreshold], ...
-    %     'ieeg',       [0, 0], ...
-    %     'eog',        [0, 0], ...
-    %     'ecg',        [0, 0], ...
-    %     'win_length', WindowLength, ...
-    %     'rejectmode', 2);  % Reject the entire segments/trials (all channels)
+    sFilesPtP = bst_process('CallProcess', 'process_detectbad', sFilesREF, [], ...
+        'timewindow', [], ...
+        'meggrad',    [0, 0], ...
+        'megmag',     [0, 0], ...
+        'eeg',        [DetectionThreshold, RejectionThreshold], ...
+        'ieeg',       [0, 0], ...
+        'eog',        [0, 0], ...
+        'ecg',        [0, 0], ...
+        'win_length', WindowLength, ...
+        'rejectmode', 2);  % Reject the entire segments/trials (all channels)
     
     
     %% Compute parameters for json report: bad channels, segments, blinks and cardiacs
@@ -493,27 +497,27 @@ for iSub = 1:length(sFilesCont)
         sRawData = in_bst_data(sRaw.FileName, 'F'); 
         
         % Bad channels are contained in the channelflag
-    %     ChannelFlags = sRawData.F.channelflag;  % 1=good, -1=bad
-    %     numBadChannels = 0;
-    %     BadChannels = [];
-    % 
-    %     % Count and store indexes of bad channels
-    %     for i = 1:length(ChannelFlags)
-    %         if ChannelFlags(i) == -1
-    %             numBadChannels = numBadChannels + 1;
-    %             BadChannels(end+1) = i;
-    %         end
-    %     end
-    %     % Display results and transfer to json structure
-    %     fprintf("Found %i bad channels.\n", numBadChannels);
-    %     jsonData.numBadChannels = numBadChannels;
-    %     jsonData.badChannelIndexes = BadChannels;  % Conectar con tsv para poner nombres de canales en vez de numeros?
+        ChannelFlags = sRawData.F.channelflag;  % 1=good, -1=bad
+        numBadChannels = 0;
+        BadChannels = [];
+
+        % Count and store indexes of bad channels
+        for i = 1:length(ChannelFlags)
+            if ChannelFlags(i) == -1
+                numBadChannels = numBadChannels + 1;
+                BadChannels(end+1) = i;
+            end
+        end
+        % Display results and transfer to json structure
+        fprintf("Found %i bad channels.\n", numBadChannels);
+        jsonData.numBadChannels = numBadChannels;
+        jsonData.badChannelIndexes = BadChannels;  % Conectar con tsv para poner nombres de canales en vez de numeros?
     end
     
     % Count number of events (bad segments, blinks and cardiacs)
     % Initialize
-    % numBadSegments = 0;
-    % BadSegments     = {};   
+    numBadSegments = 0;
+    BadSegments     = {};   
     numBlinks       = 0;
     Blinks          = {};   
     numCardiac      = 0;
@@ -525,11 +529,11 @@ for iSub = 1:length(sFilesCont)
         evtTimes = evt.times;   
         evtLabel = evt.label;
     
-        % if contains(evtLabel, 'BAD', 'IgnoreCase', true)  %
-        %     numBadSegments = numBadSegments + length(evtTimes);
-        %     BadSegments{end+1} = evtTimes;  
+        if contains(evtLabel, 'BAD', 'IgnoreCase', true)  %
+            numBadSegments = numBadSegments + length(evtTimes);
+            BadSegments{end+1} = evtTimes;  
     
-        if contains(evtLabel, 'blink', 'IgnoreCase', true)
+        elseif contains(evtLabel, 'blink', 'IgnoreCase', true)
             numBlinks = numBlinks + length(evtTimes);
             Blinks{end+1} = evtTimes;      
     
@@ -540,10 +544,10 @@ for iSub = 1:length(sFilesCont)
     end
     
     % Add to JSON structure
-    % jsonData.numBadSegments = numBadSegments;
+    jsonData.numBadSegments = numBadSegments;
     jsonData.numBlinks      = numBlinks;
     jsonData.numCardiac     = numCardiac;
-    % jsonData.badSegments    = BadSegments;
+    jsonData.badSegments    = BadSegments;
     jsonData.blinkTimes     = Blinks;
     jsonData.cardiacTimes   = Cardiac;
 
@@ -568,21 +572,7 @@ for iSub = 1:length(sFilesCont)
              'Output',          'all', ...
              'SaveKernel',      0));
     
-    % Process: Snapshot: Frequency spectrum
-    % bst_process('CallProcess', 'process_snapshot', sFilesPSDpost, [], ...
-    %     'type',           'spectrum', ...  % Frequency spectrum
-    %     'modality',       4, ...  % EEG
-    %     'orient',         1, ...  % left
-    %     'time',           0, ...
-    %     'contact_time',   [0, 0.1], ...
-    %     'contact_nimage', 12, ...
-    %     'threshold',      30, ...
-    %     'surfsmooth',     30, ...
-    %     'freq',           0, ...
-    %     'rowname',        '', ...
-    %     'mni',            [0, 0, 0], ...
-    %     'Comment',        '');
-
+    
     % View PSD manually to change size
     hFigPSDpost = view_spectrum(sFilesPSDpost.FileName, 'Spectrum');
     set(hFigPSDpost, 'Position', fig_size); 
@@ -701,6 +691,29 @@ for iSub = 1:length(sFilesCont)
              'smoothing_method', 'geodesic_dist', ...
              'smoothing_fwhm',   10), ...
         'channelfile', '');
+
+    disp('=== Display leadfield vectors')
+    % Get head model file
+    [sStudy, ~] = bst_get('DataFile', sFilesHead.FileName);
+    headModelFile = sStudy.HeadModel;
+
+    % Display figure
+    hFigLead = view_leadfield_vectors(headModelFile.FileName, 'EEG');
+
+    % Set orientation left (1)
+    figure_3d('SetStandardView', hFigLead, 'left'); 
+    bst_report('Snapshot', hFigLead, headModelFile.FileName, 'Leadfield vectors: Left View', fig_size);
+
+    % Set orientation right (3)
+    figure_3d('SetStandardView', hFigLead, 'right'); 
+    bst_report('Snapshot', hFigLead, headModelFile.FileName, 'Leadfield vectors: Right View', fig_size);
+    
+    % Set orientation top (5) 
+    figure_3d('SetStandardView', hFigLead, 'top'); 
+    bst_report('Snapshot', hFigLead, headModelFile.FileName, 'Leadfield vectors: Top View', fig_size);
+
+    close(hFigLead);
+
     
     disp('=== Compute noise covariance matrix')
     % Process: Compute covariance (noise or data)
@@ -716,16 +729,6 @@ for iSub = 1:length(sFilesCont)
         'copymatch',      noiseCov_copymatch, ...
         'replacefile',    noiseCov_replacefile);  
     
-    % Process: Snapshot: Noise covariance
-    % sFiles = bst_process('CallProcess', 'process_snapshot', sFilesNoise, [], ...
-    %     'type',           'noiscov', ...  % Noise covariance
-    %     'modality',       4, ...  % EEG
-    %     'orient',         1, ...  % left
-    %     'time',           0, ...
-    %     'contact_time',   [0, 0.1], ...
-    %     'contact_nimage', 12, ...
-    %     'rowname',        '', ...
-    %     'Comment',        '');
 
     % View noise covariance manually to change the size
     [sStudy, iStudy] = bst_get('AnyFile', sFilesNoise.FileName);
@@ -756,6 +759,25 @@ for iSub = 1:length(sFilesCont)
              'SnrFixed',       sources_snrFixed, ...
              'ComputeKernel',  sources_computeKernel, ...
              'DataTypes',      {{sources_dataTypes}}));
+
+
+    disp('=== Display sources')
+    % Open figure
+    hFigSources = view_surface_data([], sFilesSources.FileName);
+
+    % Orientation: Left
+    figure_3d('SetStandardView', hFigSources, 'left'); 
+    bst_report('Snapshot', hFigSources, sFilesSources.FileName, 'Sources: Left View', fig_size);
+    
+    % Orientation: Right
+    figure_3d('SetStandardView', hFigSources, 'right'); 
+    bst_report('Snapshot', hFigSources, sFilesSources.FileName, 'Sources: Right View', fig_size);
+    
+    % Orientation: Top
+    figure_3d('SetStandardView', hFigSources, 'top'); 
+    bst_report('Snapshot', hFigSources, sFilesSources.FileName, 'Sources: Top View', fig_size);
+    
+    close(hFigSources);
     
     
     disp('=== Finished computing sources')
@@ -766,14 +788,14 @@ for iSub = 1:length(sFilesCont)
     % Save report
     disp('=== Save report');
     % Desired filename
-    outputName = fullfile(ReportsDir, sprintf('Preprocessing-%s-%s.html', participant, ProtocolName));
+    outputName = fullfile(ReportsDir, sprintf('Preproc-%s-%s-%s.html', participant, conditionName, ProtocolName));
     
     % Save and then export to the custom name
     ReportFile = bst_report('Save', []);
     bst_report('Export', ReportFile, outputName);
     
     % Create JSON report
-    jsonFile = fullfile(ReportsDir, sprintf('Preproc-%s-%s.json', participant, ProtocolName));
+    jsonFile = fullfile(ReportsDir, sprintf('Preproc-%s-%s-%s.json', participant, conditionName, ProtocolName));
     fid = fopen(jsonFile, 'w');
     if fid == -1
         error("Cannot open JSON file.")

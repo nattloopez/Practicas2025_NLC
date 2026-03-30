@@ -237,6 +237,7 @@ for iSub = 1:length(sFilesFiltered)
     hFig = view_surface_data([], sFilesSourceSmooth.FileName, [], 'NewFigure');
     set(hFig, 'Color', [1 1 1]);
     set(hFig, 'Position', fig_small);
+    pause(2);
 
     % Create contact sheet and set parameters
     hFigContact = view_contactsheet(hFig, 'freq', 'fig', [], nFreqs, centerFreqBands(1:nFreqs));

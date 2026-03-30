@@ -692,28 +692,6 @@ for iSub = 1:length(sFilesCont)
              'smoothing_fwhm',   10), ...
         'channelfile', '');
 
-    disp('=== Display leadfield vectors')
-    % Get head model file
-    [sStudy, ~] = bst_get('DataFile', sFilesHead.FileName);
-    headModelFile = sStudy.HeadModel;
-
-    % Display figure
-    hFigLead = view_leadfield_vectors(headModelFile.FileName, 'EEG');
-
-    % Set orientation left (1)
-    figure_3d('SetStandardView', hFigLead, 'left'); 
-    bst_report('Snapshot', hFigLead, headModelFile.FileName, 'Leadfield vectors: Left View', fig_size);
-
-    % Set orientation right (3)
-    figure_3d('SetStandardView', hFigLead, 'right'); 
-    bst_report('Snapshot', hFigLead, headModelFile.FileName, 'Leadfield vectors: Right View', fig_size);
-    
-    % Set orientation top (5) 
-    figure_3d('SetStandardView', hFigLead, 'top'); 
-    bst_report('Snapshot', hFigLead, headModelFile.FileName, 'Leadfield vectors: Top View', fig_size);
-
-    close(hFigLead);
-
     
     disp('=== Compute noise covariance matrix')
     % Process: Compute covariance (noise or data)

@@ -279,6 +279,28 @@ for iSub = 1:length(sFilesFiltered)
 
     disp('=== Finished analysis of resting state on sources')
     
+
+    %% Export values for regions and frequencies
+    % Extract activity values
+    scoutsValues = in_bst_timefreq(sFilesScouts.FileName);
+    values = scoutsValues.Value(:, 1);
+
+    % Extract region names
+    regions = {scoutsValues.Atlas.Scouts.Label};
+
+    % Create matrix with complete labels
+    [B, R] = meshgrid(regions, freqNames);
+    classes = strcat(B(:), ' - ', R(:));
+
+    % Convert labels and values to row vectors
+    values = values(:)';
+    classes = classes(:)';
+
+    % Store both in a table and in csv file
+    table = array2table(values, 'VariableNames', classes);
+    outputFile = fullfile(ReportsDir, ['Features_', participant, conditionName, ProtocolName, '.csv']);
+    writetable(table, outputFile);
+
     
     %% Save report and end loop
     

@@ -15,16 +15,14 @@ BrainstormDbDir = fullfile(pwd, 'brainstorm_db');
 ReportsDir = '/home/natalia/app_local/out_reports';
 DataDir    = '/home/natalia/app_local/out_QC';
 
-% BIDS directory with all participants
-BIDS_dir = '/home/natalia/app_local/EEG_BIDS_restingdata_output';
 
 % Protocol name and parameters
-ProtocolName = 'DatasetAD'; 
+ProtocolName = 'Dataset005385'; 
 UseDefaultAnat = 1; 
 UseDefaultChannel = 0;
 
-% Import BIDS parameters
-nVertices = 15000; 
+% Subjects to analyze, empty --> all subjects
+Subs = [];
 
 % Import EEG (epoch) parameters
 epoch_length = 4;
@@ -35,8 +33,11 @@ ignore_short = 1;
 % EEGcap = 'ICBM152: 10-20 19';
 % ds003775
 % EEGcap = 'Colin27: BioSemi 64 10-10';
-% Home acquisition
+% ds005385 / Home acquisition
 EEGcap = 'ICBM152: BrainProducts EasyCap 64';
+
+% Bad channel selection
+zThreshold = 5; % z for standardization (3 strict, 5 relaxed)
 
 % PSD parameters
 Win_length = 4;
@@ -49,14 +50,17 @@ fig_height = 600;
 fig_size = [200 200 fig_width fig_height];
 
 
-%% START BRAINSTORM
-disp('== Start Brainstorm defaults');
+%% Start Brainstorm and load protocol from database
+disp('== Start Brainstorm (nogui)');
 
-% Start Brainstorm (no GUI)
-brainstorm nogui
+% Start Brainstorm in nogui mode if not already running
+if ~brainstorm('status')
+    brainstorm nogui
+end
 
-% Set Brainstorm database directory
-bst_set('BrainstormDbDir',BrainstormDbDir) 
+% Set the Brainstorm database directory
+bst_set('BrainstormDbDir', BrainstormDbDir);
+
 % Reset colormaps
 bst_colormaps('RestoreDefaults', 'eeg');
 
@@ -66,41 +70,41 @@ disp(['- BrainstormUserDir:', bst_get('BrainstormUserDir')]); % HOME/.brainstorm
 disp(['- HOME env:', getenv('HOME')]);
 disp(['- HOME java:', char(java.lang.System.getProperty('user.home'))]);
 
+% Verify
+disp(['BrainstormDbDir: ', bst_get('BrainstormDbDir')]);  
 
-%% CREATE PROTOCOL 
-disp('== Create protocol');
+% Load the protocol by its name
+disp(['== Loading protocol: ', ProtocolName]);
+iProtocol = bst_get('Protocol', ProtocolName);
+if isempty(iProtocol)
+    error(['Protocol "', ProtocolName, '" not found in database at: ', BrainstormDbDir]);
+end
 
-% Create new protocol
-gui_brainstorm('CreateProtocol', ProtocolName, UseDefaultAnat, UseDefaultChannel);
-disp('- New protocol created');
+% Set as current
+gui_brainstorm('SetCurrentProtocol', iProtocol);
 
 % Start report
 bst_report('Start');
 
-%% Import BIDS data
-disp('=== Import BIDS dataset')
 
-% Process: BIDS import
-bst_process('CallProcess', 'process_import_bids', [], [], ...
-    'bidsdir',       {BIDS_dir, 'BIDS'}, ...
-    'nvertices',     nVertices, ...            % number of vertices for cortex surface reconstruction (if FS surfaces available)
-    'mni',           'maff8', ...          % method for MNI normalization, if needed
-    'anatregister',  'spm12', ...          % method for anatomy registration (if you want registration)
-    'groupsessions', 1, ...                % whether to group multiple sessions into one subject
-    'channelalign',  1);                   % align sensor positions (if head-shape or fiducials available)
+%% Store data in sFilesAll for normal use
+disp('=== Get all raw EEG data files in protocol');
 
-% Store files that were imported
+% Select all continuous raw files (or whichever file type you want)
 sFilesAll = bst_process('CallProcess', 'process_select_files_data', [], [], ...
-    'tag',         '', ...
-    'subjectname', 'All');
+    'subjectname',   '', ...     % empty = all subjects
+    'condition',     '', ...     % empty = all conditions
+    'tag',           '', ...     
+    'includebad',    1, ...      
+    'includeintra',  1, ...
+    'includecommon', 0);
 
-% Verify
+% Check if we have files
 if isempty(sFilesAll)
-    error("Error: Database query returned no files. Check if BIDS import actually worked.");
+    error('No data files found in this protocol');
 else
-    disp(["== Success: Found " num2str(length(sFilesAll)) " files in database"]);
+    disp(['Found ', num2str(length(sFilesAll)), ' data files in protocol.']);
 end
-
 
 
 %% Loop over participants
@@ -108,8 +112,18 @@ for iSub = 1:length(sFilesAll)
 
     % Extract participant information
     participant = sFilesAll(iSub).SubjectName;
-    disp(['=== Processing participant: ', num2str(participant)]);
+    disp(['=== Selected participant: ', num2str(participant)]);
     
+    % Skip analysis if participant not found in specified string
+    if ~isempty(Subs)
+        if ~ismember(participant, Subs)
+            disp(['=== Skipping participant: ', num2str(participant), ' because not included in subject array.']);
+            continue
+        else
+            disp(['=== Processing participant: ', num2str(participant)]);
+        end
+    end
+
     % Select participant
     sFilesEEG = sFilesAll(iSub);
 
@@ -124,29 +138,6 @@ for iSub = 1:length(sFilesAll)
     % Obtain condition for report naming (required if more than one
     % recording per subject)
     conditionName = sFilesEEG.Condition;
-    
-    
-    %% Import recordings: convert to epochs for later use
-    disp('=== Import recordings: convert to epochs')
-
-    % Process: Import MEG/EEG: Time
-    sFilesImport = bst_process('CallProcess', 'process_import_data_time', sFilesEEG, [], ...
-        'subjectname',   participant, ...
-        'condition',     'epoch', ...
-        'timewindow',    [], ...
-        'split',         epoch_length, ...
-        'ignoreshort',   ignore_short, ...
-        'usectfcomp',    0, ...
-        'usessp',        1, ...
-        'freq',          [], ...
-        'baseline',      [], ...
-        'blsensortypes', 'MEG, EEG');
-
-
-    % Process: Add tag: epoch
-    bst_process('CallProcess', 'process_add_tag', sFilesImport, [], ...
-        'tag',            'epoch', ...
-        'output',         'name');  % Add to file name
 
 
     %% Quality Control: check sensors 
@@ -163,10 +154,10 @@ for iSub = 1:length(sFilesAll)
 
     disp('=== Check correct placement of sensors.')
 
-    % Get cortex file and display it
+    % Get head file and display it
     sSubject = bst_get('Subject', sFilesEEG.SubjectName);
-    CortexFile = sSubject.Surface(sSubject.iCortex).FileName;
-    hFig = view_surface(CortexFile);
+    ScalpFile = sSubject.Surface(sSubject.iScalp).FileName;
+    hFig = view_surface(ScalpFile);
     
     % Overlay the sensors and adjust transparency
     view_channels(sFilesEEG.ChannelFile, 'EEG', 1, 1, hFig, 0, []);
@@ -189,6 +180,29 @@ for iSub = 1:length(sFilesAll)
 
     disp('=== Finished checking sensors')
 
+
+    %% Import recordings: convert to epochs for later use
+    disp('=== Import recordings: convert to epochs')
+
+    % Process: Import MEG/EEG: Time
+    sFilesImport = bst_process('CallProcess', 'process_import_data_time', sFilesEEG, [], ...
+        'subjectname',   participant, ...
+        'condition',     'epoch', ...
+        'timewindow',    [], ...
+        'split',         epoch_length, ...
+        'ignoreshort',   ignore_short, ...
+        'usectfcomp',    0, ...
+        'usessp',        1, ...
+        'freq',          [], ...
+        'baseline',      [], ...
+        'blsensortypes', 'MEG, EEG');
+
+
+    % Process: Add tag: epoch
+    bst_process('CallProcess', 'process_add_tag', sFilesImport, [], ...
+        'tag',            'epoch', ...
+        'output',         'name');  % Add to file name
+    
 
     %% Quality control: check the time series
     disp('=== Show raw recordings in column and butterfly mode')
@@ -249,16 +263,66 @@ for iSub = 1:length(sFilesAll)
 
     % First: mean figure
     hFigMean = view_topography(sFilesImport(1).FileName, 'EEG', '2DDisc', avgData, 1, "NewFigure");
+    view_channels(sFilesEEG.ChannelFile, 'EEG', 1, 1, hFigMean, 0, []);
     bst_report('Snapshot', hFigMean, sFilesImport(1).FileName, 'Mean per Channel (Pre-processing)', fig_size);
     close(hFigMean);
     
     % Second: standard deviation
     hFigStd = view_topography(sFilesImport(1).FileName, 'EEG', '2DDisc', stdev, 1, "NewFigure");
+    view_channels(sFilesEEG.ChannelFile, 'EEG', 1, 1, hFigStd, 0, []);
     bst_report('Snapshot', hFigStd, sFilesImport(1).FileName, 'Standard deviation per Channel (Pre-processing)', fig_size);
     close(hFigStd);
 
     disp('=== Finished displaying mean and std for each sensor')
 
+
+    %% Quality control: use standard deviation to mark bad channels
+    disp('=== Mark bad sensors using results from standard deviation')
+
+    % Compute median of standard deviations (mean is not robust in this case)
+    medianStd = median(stdev);
+    madStd    = mad(stdev, 1); % Median Absolute Deviation
+
+    % Find noisy channels (stdev is too high)
+    upperLimit = medianStd + (zThreshold * madStd);
+    iNoisyChannels = find(stdev > upperLimit);
+
+    % Find flat channels (stdev is too low)
+    lowerLimit = medianStd - (zThreshold * madStd);
+    iFlatChannels = find(stdev < lowerLimit);
+
+    % Combine both into a single structure
+    iBadChannels = unique([iNoisyChannels; iFlatChannels]);
+    
+    disp(['=== Automatically detected ', num2str(length(iBadChannels)), ' bad channels.']);
+    % Mark channels as bad in Brainstorm 
+
+    if ~isempty(iBadChannels)
+        % Get the channel names for these indices
+        channelFileAbs = bst_fullfile(bst_get('BrainstormDbDir'), ProtocolName, 'data', sFilesEEG.ChannelFile);
+        sChannel = load(channelFileAbs);
+        badChannelNames = {sChannel.Channel(iBadChannels).Name};
+        
+        disp(['--- Marking as bad: ', strjoin(badChannelNames, ', ')]);
+    
+        % Process: Mark bad channels for continuous and epoched files
+        sFilesAll_update = [sFilesEEG, sFilesImport]; 
+        tree_set_channelflag({sFilesAll_update.FileName}, 'AddBad', badChannelNames);
+
+        % Recover sFilesEEG
+        sFilesEEG = sFilesAll_update(1);
+        sFilesImport = sFilesAll_update(2:end);
+
+        % Store in JSON report
+        jsonData.badChannels = badChannelNames;
+            
+        disp('=== Channels successfully marked as BAD in Brainstorm database');
+    else
+        % Empty field in JSON report
+        jsonData.badChannels = {};
+        disp('=== No bad channels detected.');
+    end
+    
 
     %% Quality control: check PSD pre-processing
     
@@ -280,23 +344,7 @@ for iSub = 1:length(sFilesAll)
              'Output',          'all', ...
              'SaveKernel',      0));
     
-    % PSD can be visualized with the snapshot or manually, the second
-    % option allows changing figure size, snapshot doesn't 
-    % Process: Snapshot: Frequency spectrum
-    % bst_process('CallProcess', 'process_snapshot', sFilesPSDpre, [], ...
-    %     'type',           'spectrum', ...  % Frequency spectrum
-    %     'modality',       4, ...  % EEG
-    %     'orient',         1, ...  % left
-    %     'time',           0, ...
-    %     'contact_time',   [0, 0.1], ...
-    %     'contact_nimage', 12, ...
-    %     'threshold',      30, ...
-    %     'surfsmooth',     30, ...
-    %     'freq',           0, ...
-    %     'rowname',        '', ...
-    %     'mni',            [0, 0, 0], ...
-    %     'Comment',        '');
-
+   
     % View PSD manually 
     hFigPSD = view_spectrum(sFilesPSDpre.FileName, 'Spectrum');
     set(hFigPSD, 'Position', fig_size); 
@@ -352,13 +400,22 @@ for iSub = 1:length(sFilesAll)
 
     % Create figure in the background
     hFigPeaks = figure('Visible', 'off'); 
-    scatter(peakFreqs, 10*log10(peaks), 60, 'MarkerFaceColor', [0 .5 .5], 'MarkerEdgeColor', [0 .3 .3]);
+
+    % Plot PSD
+    plot(freqs, 10*log10(meanPSD), 'k', 'LineWidth', 1.5); 
+    hold on;
+
+    % Overlay the detected peaks
+    plot(peakFreqs, 10*log10(peaks), 'ro', 'MarkerFaceColor', 'r', 'MarkerSize', 8);
+    
+    % Formatting
     grid on;
     xlabel('Frequency (Hz)');
-    xlim([0,250]);
-    ylabel('Log Power (dB)');
+    xlim([0, 250]);
+    ylabel('Power (dB)');
     title(['PSD Peaks Detection - ', participant]);
     set(hFigPeaks, 'Position', fig_size); 
+    hold off; 
     
     % Make snapshot for report and close
     bst_report('Snapshot', hFigPeaks, sFilesPSDpre.FileName, 'Detected PSD Peaks Scatter', fig_size);

@@ -18,6 +18,9 @@ DataDir    = '/home/natalia/app_local/out_preproc';
 % directly import it from database)
 ProtocolName = 'DatasetAD'; 
 
+% List of participants to analyze
+Subs = ["sub-01"];
+
 % PSD parameters
 Win_length = 4;
 Win_overlap = 50;
@@ -184,7 +187,14 @@ sFilesCont = bst_process('CallProcess', 'process_select_tag', sFilesAll, [], ...
 for iSub = 1:length(sFilesCont)
 
     participant = sFilesCont(iSub).SubjectName; % Extract participant information
-    disp(['=== Processing participant: ', num2str(participant)]);
+
+    % Skip analysis if participant not found in specified string
+    if ~ismember(participant, Subs)
+        disp(['=== Skipping participant: ', num2str(participant), ' because not included in subject array.']);
+        continue
+    else
+        disp(['=== Processing participant: ', num2str(participant)]);
+    end
     
     % Select participant
     sFilesRaw = sFilesCont(iSub);
@@ -455,7 +465,7 @@ for iSub = 1:length(sFilesCont)
 
     
 
-    disp('=== Detect bad channels and segments') % Temporarily out of use until I use mean and std results, rn it gives problems
+    disp('=== Detect bad channels and segments') 
     
     % Process: Detect bad segments/trials: Peak-to-peak  EEG(0-100)
     sFilesPtP = bst_process('CallProcess', 'process_detectbad', sFilesREF, [], ...
@@ -616,54 +626,59 @@ for iSub = 1:length(sFilesCont)
     
 
     %% Compute average and standard deviation for each sensor after processing
-    disp('=== Compute average and stdev for each sensor')
+    % Only if not all segments are marked as bad (sometimes happens)
 
-    % Extract number of channels from one epoch
-    sData = in_bst_data(sFilesEpoch(1).FileName, 'F');
-    [nChan, nTime] = size(sData.F);
-    allData = zeros(nChan, nTime * length(sFilesEpoch)); % eg: 19 channels x (2000 times x 198 epochs)
+    if ~isempty(sFilesEpoch)
+        disp('=== Compute average and stdev for each sensor')
     
-    % Go through all epochs to obtain a single matrix with all data
-    for i = 1:length(sFilesEpoch)
-        sEpoch = in_bst_data(sFilesEpoch(i).FileName, 'F');
+        % Extract number of channels from one epoch
+        sData = in_bst_data(sFilesEpoch(1).FileName, 'F');
+        [nChan, nTime] = size(sData.F);
+        allData = zeros(nChan, nTime * length(sFilesEpoch)); % eg: 19 channels x (2000 times x 198 epochs)
         
-        % Determine the indices for this epoch in the general matrix
-        startId = (i-1) * nTime + 1;
-        endId   = i * nTime;
+        % Go through all epochs to obtain a single matrix with all data
+        for i = 1:length(sFilesEpoch)
+            sEpoch = in_bst_data(sFilesEpoch(i).FileName, 'F');
+            
+            % Determine the indices for this epoch in the general matrix
+            startId = (i-1) * nTime + 1;
+            endId   = i * nTime;
+            
+            % Store in the matrix
+            allData(:, startId:endId) = sEpoch.F;
+        end
         
-        % Store in the matrix
-        allData(:, startId:endId) = sEpoch.F;
+        % Compute average and standard deviation across the concatenated matrix
+        avgData = mean(allData, 2);
+        stdev   = std(allData, 0, 2);
+    
+        % Transfer to JSON structure
+        jsonData.avgPerChannelPost = avgData;
+        jsonData.stdPerChannelPost = stdev;
+    
+        disp('=== Finished computing average and stdev for each sensor')
+    
+    
+        %% Generate 2D plot to visualize mean and std in each sensor
+        disp('=== Show mean and std for each sensor')
+    
+        % view_topography requires a Brainstorm structure, so we use an
+        % existing one but actually pass avgData and stdev to plot
+    
+        % First: mean figure
+        hFigMean = view_topography(sFilesEpoch(1).FileName, 'EEG', '2DDisc', avgData, 1, "NewFigure");
+        bst_report('Snapshot', hFigMean, sFilesEpoch(1).FileName, 'Mean per Channel (Post-processing)', fig_size);
+        close(hFigMean);
+        
+        % Second: standard deviation
+        hFigStd = view_topography(sFilesEpoch(1).FileName, 'EEG', '2DDisc', stdev, 1, "NewFigure");
+        bst_report('Snapshot', hFigStd, sFilesEpoch(1).FileName, 'Standard deviation per Channel (Post-processing)', fig_size);
+        close(hFigStd);
+    
+        disp('=== Finished displaying mean and std for each sensor')
+    
     end
     
-    % Compute average and standard deviation across the concatenated matrix
-    avgData = mean(allData, 2);
-    stdev   = std(allData, 0, 2);
-
-    % Transfer to JSON structure
-    jsonData.avgPerChannelPost = avgData;
-    jsonData.stdPerChannelPost = stdev;
-
-    disp('=== Finished computing average and stdev for each sensor')
-
-
-    %% Generate 2D plot to visualize mean and std in each sensor
-    disp('=== Show mean and std for each sensor')
-
-    % view_topography requires a Brainstorm structure, so we use an
-    % existing one but actually pass avgData and stdev to plot
-
-    % First: mean figure
-    hFigMean = view_topography(sFilesEpoch(1).FileName, 'EEG', '2DDisc', avgData, 1, "NewFigure");
-    bst_report('Snapshot', hFigMean, sFilesEpoch(1).FileName, 'Mean per Channel (Post-processing)', fig_size);
-    close(hFigMean);
-    
-    % Second: standard deviation
-    hFigStd = view_topography(sFilesEpoch(1).FileName, 'EEG', '2DDisc', stdev, 1, "NewFigure");
-    bst_report('Snapshot', hFigStd, sFilesEpoch(1).FileName, 'Standard deviation per Channel (Post-processing)', fig_size);
-    close(hFigStd);
-
-    disp('=== Finished displaying mean and std for each sensor')
-
 
     %% Compute sources
     

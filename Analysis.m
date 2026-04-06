@@ -19,6 +19,9 @@ DataDir    = '/home/natalia/app_local/out_analysis';
 ProtocolName = 'DatasetAD'; 
 UseDefaultAnat = 1;
 
+% List of participants to analyze
+Subs = ["sub-01"];
+
 % PSD parameters
 Win_length = 4;
 Win_overlap = 50;
@@ -43,6 +46,7 @@ FreqBands = [
 ];
 freqNames = {'delta', 'theta', 'alpha', 'beta', 'gamma1', 'gamma2'};
 fontSize = 20;
+freqMatrix = {{'delta', '2, 4', 'mean'; 'theta', '5, 7', 'mean'; 'alpha', '8, 12', 'mean'; 'beta', '15, 29', 'mean'; 'gamma1', '30, 59', 'mean'; 'gamma2', '60, 90', 'mean'}};
 
 
 
@@ -123,7 +127,14 @@ end
 for iSub = 1:length(sFilesFiltered)
 
     participant = sFilesFiltered(iSub).SubjectName; % Extract participant information
-    disp(['=== Processing participant: ', num2str(participant)]);
+
+    % Skip analysis if participant not found in specified string
+    if ~ismember(participant, Subs)
+        disp(['=== Skipping participant: ', num2str(participant), ' because not included in subject array.']);
+        continue
+    else
+        disp(['=== Processing participant: ', num2str(participant)]);
+    end
     
     % Select participant
     sFilesRaw = sFilesFiltered(iSub);
@@ -139,8 +150,6 @@ for iSub = 1:length(sFilesFiltered)
     % recording per subject)
     conditionName = sFilesRaw.Condition;
     
-    % Then the rest of the parameters to include will be computed
-
 
     %% Analysis of resting state data on sensors
     
@@ -205,7 +214,7 @@ for iSub = 1:length(sFilesFiltered)
         'edit',        struct(...
              'Comment',         'Power,FreqBands', ...
              'TimeBands',       [], ...
-             'Freqs',           {{'delta', '2, 4', 'mean'; 'theta', '5, 7', 'mean'; 'alpha', '8, 12', 'mean'; 'beta', '15, 29', 'mean'; 'gamma1', '30, 59', 'mean'; 'gamma2', '60, 90', 'mean'}}, ...
+             'Freqs',           freqMatrix, ...
              'ClusterFuncTime', 'none', ...
              'Measure',         'power', ...
              'Output',          'all', ...
@@ -237,7 +246,6 @@ for iSub = 1:length(sFilesFiltered)
     hFig = view_surface_data([], sFilesSourceSmooth.FileName, [], 'NewFigure');
     set(hFig, 'Color', [1 1 1]);
     set(hFig, 'Position', fig_small);
-    pause(2);
 
     % Create contact sheet and set parameters
     hFigContact = view_contactsheet(hFig, 'freq', 'fig', [], nFreqs, centerFreqBands(1:nFreqs));

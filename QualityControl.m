@@ -17,7 +17,7 @@ DataDir    = '/home/natalia/app_local/out_QC';
 
 
 % Protocol name and parameters
-ProtocolName = 'Dataset005385'; 
+ProtocolName = 'DatasetMedPost'; 
 UseDefaultAnat = 1; 
 UseDefaultChannel = 0;
 

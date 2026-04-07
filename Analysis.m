@@ -16,11 +16,11 @@ DataDir    = '/home/natalia/app_local/out_analysis';
 
 % Protocol name (we use the same name as in other codes because we will
 % directly import it from database)
-ProtocolName = 'DatasetAD'; 
+ProtocolName = 'DatasetMedPost'; 
 UseDefaultAnat = 1;
 
 % List of participants to analyze
-Subs = ["sub-01"];
+Subs = [];
 
 % PSD parameters
 Win_length = 4;
@@ -129,11 +129,13 @@ for iSub = 1:length(sFilesFiltered)
     participant = sFilesFiltered(iSub).SubjectName; % Extract participant information
 
     % Skip analysis if participant not found in specified string
-    if ~ismember(participant, Subs)
-        disp(['=== Skipping participant: ', num2str(participant), ' because not included in subject array.']);
-        continue
-    else
-        disp(['=== Processing participant: ', num2str(participant)]);
+    if ~isempty(Subs)
+        if ~ismember(participant, Subs)
+            disp(['=== Skipping participant: ', num2str(participant), ' because not included in subject array.']);
+            continue
+        else
+            disp(['=== Processing participant: ', num2str(participant)]);
+        end
     end
     
     % Select participant

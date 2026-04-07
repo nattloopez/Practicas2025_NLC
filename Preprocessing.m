@@ -16,10 +16,10 @@ DataDir    = '/home/natalia/app_local/out_preproc';
 
 % Protocol name (we use the same name as QC protocol because we will
 % directly import it from database)
-ProtocolName = 'DatasetAD'; 
+ProtocolName = 'DatasetMedPost'; 
 
 % List of participants to analyze
-Subs = ["sub-01"];
+Subs = [];
 
 % PSD parameters
 Win_length = 4;
@@ -115,9 +115,9 @@ fig_size = [200, 200, fig_width, fig_height];
 
 
 % SSP contact sheet parameters
-nCols = 5;
+nCols = 8;
 tileWidth = floor(fig_width / nCols); 
-tileHeight = 0.6*tileWidth; 
+tileHeight = floor(0.6*tileWidth); 
 
 
 %% Start Brainstorm and load protocol from database
@@ -189,11 +189,13 @@ for iSub = 1:length(sFilesCont)
     participant = sFilesCont(iSub).SubjectName; % Extract participant information
 
     % Skip analysis if participant not found in specified string
-    if ~ismember(participant, Subs)
-        disp(['=== Skipping participant: ', num2str(participant), ' because not included in subject array.']);
-        continue
-    else
-        disp(['=== Processing participant: ', num2str(participant)]);
+    if ~isempty(Subs)
+        if ~ismember(participant, Subs)
+            disp(['=== Skipping participant: ', num2str(participant), ' because not included in subject array.']);
+            continue
+        else
+            disp(['=== Processing participant: ', num2str(participant)]);
+        end
     end
     
     % Select participant
@@ -309,75 +311,77 @@ for iSub = 1:length(sFilesCont)
             'select',      sspECG_select);
 
         % SSP ECG contact sheet
-        channels = in_bst_channel(ECGprojectors.ChannelFile);
-        iProjECG = 0;
-        % Find cardiac projectors
-        for i = 1:length(channels.Projector)
-            if contains(channels.Projector(i).Comment, cardiac_name, 'IgnoreCase', true)
-                iProjECG = i;
-                break;
+        if ~isempty(ECGprojectors)
+            channels = in_bst_channel(ECGprojectors.ChannelFile);
+            iProjECG = 0;
+            % Find cardiac projectors
+            for i = 1:length(channels.Projector)
+                if contains(channels.Projector(i).Comment, cardiac_name, 'IgnoreCase', true)
+                    iProjECG = i;
+                    break;
+                end
             end
-        end
-        if iProjECG == 0
-            warning('No cardiac SSP components were found, skipping contact sheet')
-        else
-            % Obtain components matrix and singular values (percentages)
-            components = channels.Projector(iProjECG).Components; % Nchannels x Nprojectors
-            SingVal = channels.Projector(iProjECG).SingVal;
-
-            % If singular values are empty, we will show the indexes
-            if isempty(SingVal)
-                percentages = zeros(1, size(components,2));
+            if iProjECG == 0
+                warning('No cardiac SSP components were found, skipping contact sheet')
             else
-                % Normalize to get percentage of total variance
-                percentages = round(100 * (SingVal ./ sum(SingVal)));
-            end
-
-            [Nchannels, Nprojectors] = size(components);
-            allImages = cell(1, Nprojectors);
-
-            % Loop through all projectors to capture each topography
-            for j = 1:Nprojectors
-                hFig = view_topography(ECGprojectors.FileName, 'EEG', '2DDisc', components(:,j), 1, "NewFigure");
-        
-                % Add percentages or indexes
-                if percentages(j) > 0
-                    strLegend = sprintf('SSP%d (%d%%)', j, percentages(j));
+                % Obtain components matrix and singular values (percentages)
+                components = channels.Projector(iProjECG).Components; % Nchannels x Nprojectors
+                SingVal = channels.Projector(iProjECG).SingVal;
+    
+                % If singular values are empty, we will show the indexes
+                if isempty(SingVal)
+                    percentages = zeros(1, size(components,2));
                 else
-                    strLegend = sprintf('SSP%d', j);
+                    % Normalize to get percentage of total variance
+                    percentages = round(100 * (SingVal ./ sum(SingVal)));
+                end
+    
+                [Nchannels, Nprojectors] = size(components);
+                allImages = cell(1, Nprojectors);
+    
+                % Loop through all projectors to capture each topography
+                for j = 1:Nprojectors
+                    hFig = view_topography(ECGprojectors.FileName, 'EEG', '2DDisc', components(:,j), 1, "NewFigure");
+            
+                    % Add percentages or indexes
+                    if percentages(j) > 0
+                        strLegend = sprintf('SSP%d (%d%%)', j, percentages(j));
+                    else
+                        strLegend = sprintf('SSP%d', j);
+                    end
+                    
+                    
+                    % Capture image and save in 'allImages' cell, forcing consistent size
+                    imgRaw = out_figure_image(hFig, [], strLegend);
+                    allImages{j} = imresize(imgRaw, [tileHeight, tileWidth]);
+                    
+                    close(hFig);
+                end
+    
+                % Tile all images for display and saving in report
+                % Calculate dimensions
+                nRows = ceil(Nprojectors / nCols);
+    
+                % Initialize blank canvas
+                contactSheet = uint8(255 * ones(nRows * tileHeight, nCols * tileWidth, 3));
+            
+                for j = 1:Nprojectors
+                    row = floor((j-1) / nCols);
+                    col = mod(j-1, nCols);
+                    
+                    % Map the coordinates using our fixed tile sizes
+                    y_idx = (row * tileHeight) + (1:tileHeight);
+                    x_idx = (col * tileWidth) + (1:tileWidth);
+                    
+                    contactSheet(y_idx, x_idx, :) = allImages{j};
                 end
                 
-                
-                % Capture image and save in 'allImages' cell, forcing consistent size
-                imgRaw = out_figure_image(hFig, [], strLegend);
-                allImages{j} = imresize(imgRaw, [tileHeight, tileWidth]);
-                
-                close(hFig);
+                % Save final image
+                hFinal = view_image(contactSheet);
+                set(hFinal, 'Name', 'ECG SSP Contact Sheet', 'Position', [200, 200, fig_width, nRows * tileHeight]);
+                bst_report('Snapshot', hFinal, ECGprojectors.FileName, 'ECG SSP Components Contact Sheet', fig_size);
+                close(hFinal);
             end
-
-            % Tile all images for display and saving in report
-            % Calculate dimensions
-            nRows = ceil(Nprojectors / nCols);
-
-            % Initialize blank canvas
-            contactSheet = uint8(255 * ones(nRows * tileHeight, nCols * tileWidth, 3));
-        
-            for j = 1:Nprojectors
-                row = floor((j-1) / nCols);
-                col = mod(j-1, nCols);
-                
-                % Map the coordinates using our fixed tile sizes
-                y_idx = (row * tileHeight) + (1:tileHeight);
-                x_idx = (col * tileWidth) + (1:tileWidth);
-                
-                contactSheet(y_idx, x_idx, :) = allImages{j};
-            end
-            
-            % Save final image
-            hFinal = view_image(contactSheet);
-            set(hFinal, 'Name', 'ECG SSP Contact Sheet', 'Position', [200, 200, fig_width, nRows * tileHeight]);
-            bst_report('Snapshot', hFinal, ECGprojectors.FileName, 'ECG SSP Components Contact Sheet', fig_size);
-            close(hFinal);
         end
     end
     
@@ -390,75 +394,77 @@ for iSub = 1:length(sFilesCont)
             'select',      sspEOG_select);
 
         % SSP EOG contact sheet
-        channels = in_bst_channel(EOGprojectors.ChannelFile);
-        iProjEOG = 0;
-        % Find blink projectors
-        for i = 1:length(channels.Projector)
-            if contains(channels.Projector(i).Comment, blink_name, 'IgnoreCase', true)
-                iProjEOG = i;
-                break;
+        if ~isempty(EOGprojectors)
+            channels = in_bst_channel(EOGprojectors.ChannelFile);
+            iProjEOG = 0;
+            % Find blink projectors
+            for i = 1:length(channels.Projector)
+                if contains(channels.Projector(i).Comment, blink_name, 'IgnoreCase', true)
+                    iProjEOG = i;
+                    break;
+                end
             end
-        end
-        if iProjEOG == 0
-            warning('No blink SSP components were found, skipping contact sheet')
-        else
-            % Obtain components matrix and singular values (percentages)
-            components = channels.Projector(iProjEOG).Components; % Nchannels x Nprojectors
-            SingVal = channels.Projector(iProjEOG).SingVal;
-
-            % If singular values are empty, we will show the indexes
-            if isempty(SingVal)
-                percentages = zeros(1, size(components,2));
+            if iProjEOG == 0
+                warning('No blink SSP components were found, skipping contact sheet')
             else
-                % Normalize to get percentage of total variance
-                percentages = round(100 * (SingVal ./ sum(SingVal)));
-            end
-
-            [Nchannels, Nprojectors] = size(components);
-            allImages = cell(1, Nprojectors);
-
-            % Loop through all projectors to capture each topography
-            for j = 1:Nprojectors
-                hFig = view_topography(EOGprojectors.FileName, 'EEG', '2DDisc', components(:,j), 1, "NewFigure");
-        
-                % Add percentages or indexes
-                if percentages(j) > 0
-                    strLegend = sprintf('SSP%d (%d%%)', j, percentages(j));
+                % Obtain components matrix and singular values (percentages)
+                components = channels.Projector(iProjEOG).Components; % Nchannels x Nprojectors
+                SingVal = channels.Projector(iProjEOG).SingVal;
+    
+                % If singular values are empty, we will show the indexes
+                if isempty(SingVal)
+                    percentages = zeros(1, size(components,2));
                 else
-                    strLegend = sprintf('SSP%d', j);
+                    % Normalize to get percentage of total variance
+                    percentages = round(100 * (SingVal ./ sum(SingVal)));
+                end
+    
+                [Nchannels, Nprojectors] = size(components);
+                allImages = cell(1, Nprojectors);
+    
+                % Loop through all projectors to capture each topography
+                for j = 1:Nprojectors
+                    hFig = view_topography(EOGprojectors.FileName, 'EEG', '2DDisc', components(:,j), 1, "NewFigure");
+            
+                    % Add percentages or indexes
+                    if percentages(j) > 0
+                        strLegend = sprintf('SSP%d (%d%%)', j, percentages(j));
+                    else
+                        strLegend = sprintf('SSP%d', j);
+                    end
+                    
+                    
+                    % Capture image and save in 'allImages' cell, forcing consistent size
+                    imgRaw = out_figure_image(hFig, [], strLegend);
+                    allImages{j} = imresize(imgRaw, [tileHeight, tileWidth]);
+                    
+                    close(hFig);
+                end
+    
+                % Tile all images for display and saving in report
+                % Calculate dimensions
+                nRows = ceil(Nprojectors / nCols);
+    
+                % Initialize blank canvas
+                contactSheet = uint8(255 * ones(nRows * tileHeight, nCols * tileWidth, 3));
+            
+                for j = 1:Nprojectors
+                    row = floor((j-1) / nCols);
+                    col = mod(j-1, nCols);
+                    
+                    % Map the coordinates using our fixed tile sizes
+                    y_idx = (row * tileHeight) + (1:tileHeight);
+                    x_idx = (col * tileWidth) + (1:tileWidth);
+                    
+                    contactSheet(y_idx, x_idx, :) = allImages{j};
                 end
                 
-                
-                % Capture image and save in 'allImages' cell, forcing consistent size
-                imgRaw = out_figure_image(hFig, [], strLegend);
-                allImages{j} = imresize(imgRaw, [tileHeight, tileWidth]);
-                
-                close(hFig);
+                % Save final image
+                hFinal = view_image(contactSheet);
+                set(hFinal, 'Name', 'EOG SSP Contact Sheet', 'Position', [200, 200, fig_width, nRows * tileHeight]);
+                bst_report('Snapshot', hFinal, EOGprojectors.FileName, 'EOG SSP Components Contact Sheet', fig_size);
+                close(hFinal);
             end
-
-            % Tile all images for display and saving in report
-            % Calculate dimensions
-            nRows = ceil(Nprojectors / nCols);
-
-            % Initialize blank canvas
-            contactSheet = uint8(255 * ones(nRows * tileHeight, nCols * tileWidth, 3));
-        
-            for j = 1:Nprojectors
-                row = floor((j-1) / nCols);
-                col = mod(j-1, nCols);
-                
-                % Map the coordinates using our fixed tile sizes
-                y_idx = (row * tileHeight) + (1:tileHeight);
-                x_idx = (col * tileWidth) + (1:tileWidth);
-                
-                contactSheet(y_idx, x_idx, :) = allImages{j};
-            end
-            
-            % Save final image
-            hFinal = view_image(contactSheet);
-            set(hFinal, 'Name', 'EOG SSP Contact Sheet', 'Position', [200, 200, fig_width, nRows * tileHeight]);
-            bst_report('Snapshot', hFinal, EOGprojectors.FileName, 'EOG SSP Components Contact Sheet', fig_size);
-            close(hFinal);
         end
 
     end

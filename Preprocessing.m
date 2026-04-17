@@ -3,6 +3,12 @@
 % Cajal Institute (CSIC), Madrid, Spain 
 % March, 2026 
 
+% TOOLBOXES REQUIRED: 
+%   Signal Processing Toolbox
+%   Image Processing Toolbox
+%   Computer Vision Toolbox
+%   Statistics and ML Toolbox
+
 clc; clear;
 
 disp("=== My script has started.")
@@ -16,7 +22,7 @@ DataDir    = '/home/natalia/app_local/out_preproc';
 
 % Protocol name (we use the same name as QC protocol because we will
 % directly import it from database)
-ProtocolName = 'DatasetMedPost'; 
+ProtocolName = 'DatasetAD'; 
 
 % List of participants to analyze
 Subs = [];
@@ -471,7 +477,7 @@ for iSub = 1:length(sFilesCont)
 
     
 
-    disp('=== Detect bad channels and segments') 
+    disp('=== Detect bad segments') 
     
     % Process: Detect bad segments/trials: Peak-to-peak  EEG(0-100)
     sFilesPtP = bst_process('CallProcess', 'process_detectbad', sFilesREF, [], ...

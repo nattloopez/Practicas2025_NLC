@@ -3,6 +3,11 @@
 % Cajal Institute (CSIC), Madrid, Spain 
 % March, 2026 
 
+% TOOLBOXES REQUIRED: 
+%   Signal Processing Toolbox
+%   Image Processing Toolbox
+%   Computer Vision Toolbox
+%   Statistics and ML Toolbox
 
 clc; clear;
 
@@ -17,7 +22,7 @@ DataDir    = '/home/natalia/app_local/out_QC';
 
 
 % Protocol name and parameters
-ProtocolName = 'DatasetMedPost'; 
+ProtocolName = 'DatasetAD'; 
 UseDefaultAnat = 1; 
 UseDefaultChannel = 0;
 
@@ -420,6 +425,8 @@ for iSub = 1:length(sFilesAll)
     % Make snapshot for report and close
     bst_report('Snapshot', hFigPeaks, sFilesPSDpre.FileName, 'Detected PSD Peaks Scatter', fig_size);
     close(hFigPeaks);
+
+    % PSD peaks up to 80 Hz
 
 
     disp('=== Quality Control finished')

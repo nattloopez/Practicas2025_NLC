@@ -3,6 +3,12 @@
 % Cajal Institute (CSIC), Madrid, Spain 
 % March, 2026 
 
+% TOOLBOXES REQUIRED: 
+%   Signal Processing Toolbox
+%   Image Processing Toolbox
+%   Computer Vision Toolbox
+%   Statistics and ML Toolbox
+
 clc; clear;
 
 disp("=== My script has started.")
@@ -16,7 +22,7 @@ DataDir    = '/home/natalia/app_local/out_analysis';
 
 % Protocol name (we use the same name as in other codes because we will
 % directly import it from database)
-ProtocolName = 'DatasetMedPost'; 
+ProtocolName = 'DatasetAD'; 
 UseDefaultAnat = 1;
 
 % List of participants to analyze
@@ -47,7 +53,8 @@ FreqBands = [
 freqNames = {'delta', 'theta', 'alpha', 'beta', 'gamma1', 'gamma2'};
 fontSize = 20;
 freqMatrix = {{'delta', '2, 4', 'mean'; 'theta', '5, 7', 'mean'; 'alpha', '8, 12', 'mean'; 'beta', '15, 29', 'mean'; 'gamma1', '30, 59', 'mean'; 'gamma2', '60, 90', 'mean'}};
-
+nFreqs = length(FreqBands);
+centerFreqBands = mean(FreqBands, 2);
 
 
 %% Start Brainstorm and load protocol from database
@@ -172,13 +179,45 @@ for iSub = 1:length(sFilesFiltered)
              'Measure',         'power', ...
              'Output',          'all', ...
              'SaveKernel',      0));
-    
+
+    % Total Contact Sheet
+    % Load image and set label size and background
+    hFigTot_sensors = view_topography(sFilesSensorBands.FileName, 'EEG', '2DDisc');
+    set(hFigTot_sensors, 'Color', [1 1 1]);
+    set(hFigTot_sensors, 'Position', fig_small);
+    pause(1);
+    % Create contact sheet and parameters
+    hFigContact_Tot_sensors = view_contactsheet(hFigTot_sensors, 'freq', 'fig', [], nFreqs, centerFreqBands(1:nFreqs));
+    set(hFigContact_Tot_sensors, 'Color', [1 1 1]);
+    hContactAxes_Tot_sensors = findobj(hFigContact_Tot_sensors, 'Type', 'axes');
+    set(hContactAxes_Tot_sensors, 'FontSize', fontSize, 'FontWeight', 'bold');
+    % Save image
+    bst_report('Snapshot', hFigContact_Tot_sensors, sFilesSensorBands.FileName, 'Total Sources Frequency Contact Sheet', fig_size);
+    close(hFigTot_sensors);
+    close(hFigContact_Tot_sensors);
+
     
     disp('=== Normalize spectrum')
     % Process: Spectrum normalization
     sFilesSensorNorm = bst_process('CallProcess', 'process_tf_norm', sFilesSensorBands, [], ...
         'normalize', 'relative2020', ...  % Relative power (divide by total power)
         'overwrite', 0);
+
+    % Relative Contact Sheet
+    % Load image and set label size and background
+    hFigRelat_sensors = view_topography(sFilesSensorNorm.FileName, 'EEG', '2DDisc');
+    set(hFigRelat_sensors, 'Color', [1 1 1]);
+    set(hFigRelat_sensors, 'Position', fig_small);
+    pause(1);
+    % Create contact sheet and parameters
+    hFigContact_Relat_sensors = view_contactsheet(hFigRelat_sensors, 'freq', 'fig', [], nFreqs, centerFreqBands(1:nFreqs));
+    set(hFigContact_Relat_sensors, 'Color', [1 1 1]);
+    hContactAxes_Relat_sensors = findobj(hFigContact_Relat_sensors, 'Type', 'axes');
+    set(hContactAxes_Relat_sensors, 'FontSize', fontSize, 'FontWeight', 'bold');
+    % Save image
+    bst_report('Snapshot', hFigContact_Relat_sensors, sFilesSensorNorm.FileName, 'Total Sources Frequency Contact Sheet', fig_size);
+    close(hFigRelat_sensors);
+    close(hFigContact_Relat_sensors);
     
     
     disp('=== Finished analysis of resting state data on sensors')
@@ -237,28 +276,40 @@ for iSub = 1:length(sFilesFiltered)
         'overwrite', 0);
     
     
-    %% Save snapshot of frequency contact sheet
+    %% Save snapshot of frequency contact sheets relative and total
     disp('=== Save frequency contact sheet')
-    
-    % Parameters for contact sheet
-    nFreqs = length(FreqBands);
-    centerFreqBands = mean(FreqBands, 2);
 
-    % Load image and set label size and background color
-    hFig = view_surface_data([], sFilesSourceSmooth.FileName, [], 'NewFigure');
-    set(hFig, 'Color', [1 1 1]);
-    set(hFig, 'Position', fig_small);
-
-    % Create contact sheet and set parameters
-    hFigContact = view_contactsheet(hFig, 'freq', 'fig', [], nFreqs, centerFreqBands(1:nFreqs));
-    set(hFigContact, 'Color', [1 1 1]);
-    hContactAxes = findobj(hFigContact, 'Type', 'axes');
-    set(hContactAxes, 'FontSize', fontSize, 'FontWeight', 'bold');
-
+    % Total Contact Sheet
+    % Load image and set label size and background
+    hFigTot = view_surface_data([], sFilesSourceBands.FileName, [], 'NewFigure');
+    set(hFigTot, 'Color', [1 1 1]);
+    set(hFigTot, 'Position', fig_small);
+    pause(1);
+    % Create contact sheet and parameters
+    hFigContact_Tot = view_contactsheet(hFigTot, 'freq', 'fig', [], nFreqs, centerFreqBands(1:nFreqs));
+    set(hFigContact_Tot, 'Color', [1 1 1]);
+    hContactAxes_Tot = findobj(hFigContact_Tot, 'Type', 'axes');
+    set(hContactAxes_Tot, 'FontSize', fontSize, 'FontWeight', 'bold');
     % Save image
-    bst_report('Snapshot', hFigContact, sFilesSourceSmooth.FileName, 'Sources Frequency Contact Sheet', fig_size);
-    close(hFig);
-    close(hFigContact);
+    bst_report('Snapshot', hFigContact_Tot, sFilesSourceBands.FileName, 'Total Sources Frequency Contact Sheet', fig_size);
+    close(hFigTot);
+    close(hFigContact_Tot);
+
+    % Relative Contact Sheet
+    % Load image and set label size and background color
+    hFigRelat = view_surface_data([], sFilesSourceSmooth.FileName, [], 'NewFigure');
+    set(hFigRelat, 'Color', [1 1 1]);
+    set(hFigRelat, 'Position', fig_small);
+    pause(1);
+    % Create contact sheet and set parameters
+    hFigContact_Relat = view_contactsheet(hFigRelat, 'freq', 'fig', [], nFreqs, centerFreqBands(1:nFreqs));
+    set(hFigContact_Relat, 'Color', [1 1 1]);
+    hContactAxes_Relat = findobj(hFigContact_Relat, 'Type', 'axes');
+    set(hContactAxes_Relat, 'FontSize', fontSize, 'FontWeight', 'bold');
+    % Save image
+    bst_report('Snapshot', hFigContact_Relat, sFilesSourceSmooth.FileName, 'Relative Sources Frequency Contact Sheet', fig_size);
+    close(hFigRelat);
+    close(hFigContact_Relat);
     
 
     %% Project to default template (if individual anatomy)
